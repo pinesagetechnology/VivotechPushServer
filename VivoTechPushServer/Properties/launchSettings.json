@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "VivoTechPushServer": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:54987;http://localhost:54988"
+    }
+  }
+}
