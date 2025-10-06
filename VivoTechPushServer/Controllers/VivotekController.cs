@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Mvc;
 using VivoTechPushServer.Models;
 using VivoTechPushServer.Services;
 using System.Text.Json;
+using System.Xml.Linq;
+using System.Text;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace VivoTechPushServer.Controllers
 {
@@ -22,7 +25,7 @@ namespace VivoTechPushServer.Controllers
         /// Endpoint to receive actual data from Vivotek device
         /// Configure this as Server URI: /api/vivotek/data in Vivotek app
         /// </summary>
-        [HttpPost("data")]
+        [HttpPost("receiveData")]
         public async Task<IActionResult> ReceiveData()
         {
             try
@@ -117,6 +120,53 @@ namespace VivoTechPushServer.Controllers
         public IActionResult Health()
         {
             return Ok(new { status = "healthy", timestamp = DateTime.UtcNow });
+        }
+
+        [HttpPost("data")]
+        public async Task<IActionResult> Data()
+        {
+            // Read raw body
+            using var reader = new StreamReader(Request.Body, Encoding.UTF8);
+            var raw = await reader.ReadToEndAsync();
+
+            // Content-Type tells you what the camera sent
+            var ct = Request.ContentType?.ToLowerInvariant();
+
+            if (!string.IsNullOrEmpty(raw) && ct?.Contains("xml") == true || raw.TrimStart().StartsWith("<"))
+            {
+                // ONVIF (SOAP/XML). Parse minimally:
+                var doc = XDocument.Parse(raw);
+
+                // (actual ONVIF payloads vary by topic/rule)
+                var topic = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Topic")?.Value;
+                //var msg = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Message")?.Value;
+
+                // Ensure msg is not null before calling SaveRawDataAsync
+                if (!string.IsNullOrEmpty(raw))
+                {
+                    await _dataStorageService.SaveRawDataAsync(raw);
+                }
+                else
+                {
+                    _logger.LogWarning("Message content is null or empty. Skipping SaveRawDataAsync.");
+                }
+            }
+            else
+            {
+                // JSON (Static body)
+                Console.WriteLine($"JSON Event: {raw}");
+                // dynamic evt = JsonSerializer.Deserialize<dynamic>(raw);
+                if (!string.IsNullOrEmpty(raw))
+                {
+                    await _dataStorageService.SaveRawDataAsync(raw);
+                }
+                else
+                {
+                    _logger.LogWarning("Message content is null or empty. Skipping SaveRawDataAsync.");
+                }
+            }
+
+            return Ok();
         }
 
         private async Task ProcessDataAsync(VivotekDataModel data)
