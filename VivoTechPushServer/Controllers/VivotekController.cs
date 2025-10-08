@@ -21,39 +21,24 @@ namespace VivoTechPushServer.Controllers
             _dataStorageService = dataStorageService;
         }
 
-        /// <summary>
-        /// Main endpoint matching Python Flask script: /vivotek/push
-        /// This is the endpoint to configure in your camera
-        /// </summary>
         [HttpPost("push")]
         public async Task<IActionResult> Push()
         {
             try
             {
-                // Read the raw body data (like Python's request.data)
                 using var reader = new StreamReader(Request.Body, Encoding.UTF8);
                 var payload = await reader.ReadToEndAsync();
 
                 var timestamp = DateTime.Now.ToString("o"); // ISO 8601 format
 
-                // Log to console (like Python's print)
-                Console.WriteLine($"[{timestamp}] Push received:");
-                Console.WriteLine(payload);
-                Console.WriteLine(new string('-', 40));
-
-                // Log to file (like Python's file write)
-                var logFilePath = "vivotek_events.log";
-                await System.IO.File.AppendAllTextAsync(logFilePath, $"[{timestamp}] {payload}\n", Encoding.UTF8);
-
                 _logger.LogInformation("Push received at {Timestamp}", timestamp);
 
-                // Return simple "OK" response like Python
                 return Ok("OK");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing push request");
-                return Ok("OK"); // Still return OK even on error, like the Python script would
+                return Ok("OK"); 
             }
         }
 
@@ -61,148 +46,65 @@ namespace VivoTechPushServer.Controllers
         /// Endpoint to receive actual data from Vivotek device
         /// Configure this as Server URI: /api/vivotek/data in Vivotek app
         /// </summary>
-        [HttpPost("receiveData")]
+        [HttpPost("push/json")]
         public async Task<IActionResult> ReceiveData()
         {
+            using var reader = new StreamReader(Request.Body);
+            var rawJson = await reader.ReadToEndAsync();
+
+            _logger.LogInformation("Received data from Vivotek device at {Timestamp}", DateTime.UtcNow);
+            _logger.LogInformation("Raw JSON payload: {RawJson}", rawJson);
+
+            var data = new VivotekDataModel
+            {
+                RawJson = rawJson,
+                ReceivedAt = DateTime.UtcNow
+            };
+
             try
             {
-                // Read the raw JSON from the request body
-                using var reader = new StreamReader(Request.Body);
-                var rawJson = await reader.ReadToEndAsync();
-
-                _logger.LogInformation("Received data from Vivotek device at {Timestamp}", DateTime.UtcNow);
-                _logger.LogInformation("Raw JSON payload: {RawJson}", rawJson);
-
-                // Create our model with the raw JSON
-                var data = new VivotekDataModel
-                {
-                    RawJson = rawJson,
-                    ReceivedAt = DateTime.UtcNow
-                };
-
-                // Try to parse the JSON for better logging
-                try
-                {
-                    data.JsonDocument = JsonDocument.Parse(rawJson);
-                    data.ParsedData = JsonSerializer.Deserialize<Dictionary<string, object>>(rawJson);
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogWarning(ex, "Failed to parse JSON payload, but will still save raw data");
-                }
-
-                // Process the data here
-                await ProcessDataAsync(data);
-
-                return Ok(new { message = "Data received successfully", timestamp = DateTime.UtcNow });
+                data.JsonDocument = JsonDocument.Parse(rawJson);
+                data.ParsedData = JsonSerializer.Deserialize<Dictionary<string, object>>(rawJson);
             }
-            catch (Exception ex)
+            catch (JsonException ex)
             {
-                _logger.LogError(ex, "Error processing data from Vivotek device");
-                return BadRequest(new { error = "Failed to process data", message = ex.Message });
+                _logger.LogWarning(ex, "Failed to parse JSON payload, but will still save raw data");
             }
+
+            // Process the data here
+            await ProcessDataAsync(data);
+
+            return Ok("OK");
         }
-
-        /// <summary>
-        /// Endpoint to receive logs from Vivotek device
-        /// Configure this as Server URI: /api/vivotek/logs in Vivotek app
-        /// </summary>
-        [HttpPost("logs")]
-        public async Task<IActionResult> ReceiveLogs()
-        {
-            try
-            {
-                // Read the raw JSON from the request body
-                using var reader = new StreamReader(Request.Body);
-                var rawJson = await reader.ReadToEndAsync();
-
-                _logger.LogInformation("Received log from Vivotek device at {Timestamp}", DateTime.UtcNow);
-                _logger.LogInformation("Raw JSON payload: {RawJson}", rawJson);
-
-                // Create our model with the raw JSON
-                var log = new VivotekLogModel
-                {
-                    RawJson = rawJson,
-                    ReceivedAt = DateTime.UtcNow
-                };
-
-                // Try to parse the JSON for better logging
-                try
-                {
-                    log.JsonDocument = JsonDocument.Parse(rawJson);
-                    log.ParsedData = JsonSerializer.Deserialize<Dictionary<string, object>>(rawJson);
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogWarning(ex, "Failed to parse JSON payload, but will still save raw data");
-                }
-
-                // Process the log here
-                await ProcessLogAsync(log);
-
-                return Ok(new { message = "Log received successfully", timestamp = DateTime.UtcNow });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing log from Vivotek device");
-                return BadRequest(new { error = "Failed to process log", message = ex.Message });
-            }
-        }
-
-        /// <summary>
-        /// Health check endpoint
-        /// </summary>
+        
         [HttpGet("health")]
         public IActionResult Health()
         {
             return Ok(new { status = "healthy", timestamp = DateTime.UtcNow });
         }
 
-        [HttpPost("data")]
+        [HttpPost("push/xml")]
         public async Task<IActionResult> Data()
         {
-            // Read raw body
             using var reader = new StreamReader(Request.Body, Encoding.UTF8);
             var raw = await reader.ReadToEndAsync();
 
-            // Content-Type tells you what the camera sent
             var ct = Request.ContentType?.ToLowerInvariant();
 
-            if (!string.IsNullOrEmpty(raw) && ct?.Contains("xml") == true || raw.TrimStart().StartsWith("<"))
+            var doc = XDocument.Parse(raw);
+
+            var topic = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Topic")?.Value;
+
+            if (!string.IsNullOrEmpty(raw))
             {
-                // ONVIF (SOAP/XML). Parse minimally:
-                var doc = XDocument.Parse(raw);
-
-                // (actual ONVIF payloads vary by topic/rule)
-                var topic = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Topic")?.Value;
-                //var msg = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Message")?.Value;
-
-                // Ensure msg is not null before calling SaveRawDataAsync
-                if (!string.IsNullOrEmpty(raw))
-                {
-                    await _dataStorageService.SaveRawDataAsync(raw);
-                }
-                else
-                {
-                    _logger.LogWarning("Message content is null or empty. Skipping SaveRawDataAsync.");
-                }
+                await _dataStorageService.SaveRawDataAsync(raw);
             }
             else
             {
-                // JSON (Static body)
-                Console.WriteLine($"JSON Event: {raw}");
-                // dynamic evt = JsonSerializer.Deserialize<dynamic>(raw);
-                if (!string.IsNullOrEmpty(raw))
-                {
-                    await _dataStorageService.SaveRawDataAsync(raw);
-                }
-                else
-                {
-                    _logger.LogWarning("Message content is null or empty. Skipping SaveRawDataAsync.");
-                }
+                _logger.LogWarning("Message content is null or empty. Skipping SaveRawDataAsync.");
             }
 
-            return Ok();
+            return Ok("OK");
         }
 
         private async Task ProcessDataAsync(VivotekDataModel data)
@@ -215,14 +117,5 @@ namespace VivoTechPushServer.Controllers
             _logger.LogInformation("Data processing completed at {Timestamp}", DateTime.UtcNow);
         }
 
-        private async Task ProcessLogAsync(VivotekLogModel log)
-        {
-            _logger.LogInformation("Processing log received at {ReceivedAt}", log.ReceivedAt);
-
-            // Save log to configured folder
-            await _dataStorageService.SaveLogAsync(log);
-            
-            _logger.LogInformation("Log processing completed at {Timestamp}", DateTime.UtcNow);
-        }
     }
 }
