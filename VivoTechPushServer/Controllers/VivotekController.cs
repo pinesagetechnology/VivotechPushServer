@@ -9,7 +9,7 @@ using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace VivoTechPushServer.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("[controller]")]
     public class VivotekController : ControllerBase
     {
         private readonly ILogger<VivotekController> _logger;
@@ -19,6 +19,42 @@ namespace VivoTechPushServer.Controllers
         {
             _logger = logger;
             _dataStorageService = dataStorageService;
+        }
+
+        /// <summary>
+        /// Main endpoint matching Python Flask script: /vivotek/push
+        /// This is the endpoint to configure in your camera
+        /// </summary>
+        [HttpPost("push")]
+        public async Task<IActionResult> Push()
+        {
+            try
+            {
+                // Read the raw body data (like Python's request.data)
+                using var reader = new StreamReader(Request.Body, Encoding.UTF8);
+                var payload = await reader.ReadToEndAsync();
+
+                var timestamp = DateTime.Now.ToString("o"); // ISO 8601 format
+
+                // Log to console (like Python's print)
+                Console.WriteLine($"[{timestamp}] Push received:");
+                Console.WriteLine(payload);
+                Console.WriteLine(new string('-', 40));
+
+                // Log to file (like Python's file write)
+                var logFilePath = "vivotek_events.log";
+                await System.IO.File.AppendAllTextAsync(logFilePath, $"[{timestamp}] {payload}\n", Encoding.UTF8);
+
+                _logger.LogInformation("Push received at {Timestamp}", timestamp);
+
+                // Return simple "OK" response like Python
+                return Ok("OK");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing push request");
+                return Ok("OK"); // Still return OK even on error, like the Python script would
+            }
         }
 
         /// <summary>

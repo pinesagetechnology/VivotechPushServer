@@ -39,7 +39,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Disable HTTPS redirection to allow cameras to connect via HTTP
+// app.UseHttpsRedirection();
 
 // Enable CORS
 app.UseCors("VivotekPolicy");
@@ -50,5 +51,9 @@ app.MapControllers();
 
 // Add a simple root endpoint
 app.MapGet("/", () => "VivoTech Push Server is running!");
+
+Console.WriteLine("VivoTech Push Server starting...");
+Console.WriteLine("Listening on: http://0.0.0.0:5000");
+Console.WriteLine("Camera endpoint: http://YOUR_SERVER_IP:5000/vivotek/push");
 
 app.Run();
