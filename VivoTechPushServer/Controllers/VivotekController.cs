@@ -42,11 +42,8 @@ namespace VivoTechPushServer.Controllers
             }
         }
 
-        /// <summary>
-        /// Endpoint to receive actual data from Vivotek device
-        /// Configure this as Server URI: /api/vivotek/data in Vivotek app
-        /// </summary>
-        [HttpPost("push/json")]
+        
+        [HttpPost("json/push")]
         public async Task<IActionResult> ReceiveData()
         {
             using var reader = new StreamReader(Request.Body);
@@ -61,17 +58,9 @@ namespace VivoTechPushServer.Controllers
                 ReceivedAt = DateTime.UtcNow
             };
 
-            try
-            {
-                data.JsonDocument = JsonDocument.Parse(rawJson);
-                data.ParsedData = JsonSerializer.Deserialize<Dictionary<string, object>>(rawJson);
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse JSON payload, but will still save raw data");
-            }
+            data.JsonDocument = JsonDocument.Parse(rawJson);
+            data.ParsedData = JsonSerializer.Deserialize<Dictionary<string, object>>(rawJson);
 
-            // Process the data here
             await ProcessDataAsync(data);
 
             return Ok("OK");
@@ -83,7 +72,7 @@ namespace VivoTechPushServer.Controllers
             return Ok(new { status = "healthy", timestamp = DateTime.UtcNow });
         }
 
-        [HttpPost("push/xml")]
+        [HttpPost("xml/push")]
         public async Task<IActionResult> Data()
         {
             using var reader = new StreamReader(Request.Body, Encoding.UTF8);
